@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Маршрутизация спецтехники</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; }
+
+    .layout { display: grid; grid-template-columns: 360px 1fr; grid-template-rows: auto 1fr; height: 100vh; }
+
+    header {
+      grid-column: 1 / -1;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 20px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+    .status-info { font-size: 12px; color: #8b949e; }
+
+    .sidebar {
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+    .tab {
+      flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 500;
+      background: transparent; border: 1px solid #30363d; color: #8b949e;
+      cursor: pointer; border-radius: 6px; transition: all .15s;
+    }
+    .tab.active { background: #21262d; color: #e1e4e8; border-color: #58a6ff; }
+    .tab:hover:not(.active) { border-color: #484f58; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; margin-top: 12px; }
+    select, input {
+      width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 6px; color: #e1e4e8; font-size: 13px; outline: none;
+    }
+    select:focus, input:focus { border-color: #58a6ff; }
+
+    .btn {
+      width: 100%; margin-top: 16px; padding: 10px; font-size: 13px; font-weight: 600;
+      background: #238636; border: 1px solid #2ea043; color: #fff;
+      border-radius: 6px; cursor: pointer; transition: background .15s;
+    }
+    .btn:hover { background: #2ea043; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .result-card {
+      margin-top: 12px; padding: 12px; background: #0d1117;
+      border: 1px solid #30363d; border-radius: 8px;
+    }
+    .result-card h4 { font-size: 13px; margin-bottom: 8px; color: #58a6ff; }
+    .result-card .metric { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+    .result-card .metric .val { color: #58a6ff; font-weight: 600; }
+    .result-card .reason { font-size: 11px; color: #8b949e; margin-top: 4px; line-height: 1.4; }
+    .score-bar { height: 4px; background: #21262d; border-radius: 2px; margin-top: 6px; }
+    .score-bar .fill { height: 100%; border-radius: 2px; background: #58a6ff; }
+
+    .savings-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600;
+      background: rgba(56, 139, 253, .15); color: #58a6ff;
+    }
+    .savings-badge.good { background: rgba(63, 185, 80, .15); color: #3fb950; }
+
+    .group-header { font-size: 13px; font-weight: 600; margin-top: 12px; padding: 8px; background: #21262d; border-radius: 6px; }
+    .stop-item { font-size: 12px; padding: 6px 8px; border-left: 2px solid #30363d; margin-left: 12px; }
+    .stop-item .uwi { color: #58a6ff; }
+
+    #map { background: #0d1117; }
+
+    .task-row {
+      display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;
+      padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; margin-top: 8px;
+    }
+    .task-row .remove { background: none; border: none; color: #f85149; cursor: pointer; font-size: 18px; padding: 4px; }
+
+    .error-msg { color: #f85149; font-size: 12px; margin-top: 8px; }
+
+    .coord-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="status-dot" id="statusDot"></div>
+      <h1>Маршрутизация спецтехники</h1>
+      <div class="status-info" id="statusInfo">Загрузка...</div>
+    </header>
+
+    <div class="sidebar">
+      <div class="tabs">
+        <div class="tab active" data-panel="recommend">Подбор</div>
+        <div class="tab" data-panel="route">Маршрут</div>
+        <div class="tab" data-panel="multitask">Мультизадача</div>
+      </div>
+
+      <!-- RECOMMEND PANEL -->
+      <div class="panel active" id="panel-recommend">
+        <label>Задание</label>
+        <select id="rec-task"></select>
+
+        <label>Приоритет</label>
+        <select id="rec-priority">
+          <option value="high">Высокий</option>
+          <option value="medium" selected>Средний</option>
+          <option value="low">Низкий</option>
+        </select>
+
+        <label>Плановое начало</label>
+        <input type="datetime-local" id="rec-start" value="2025-02-20T08:00">
+
+        <label>Длительность (часы)</label>
+        <input type="number" id="rec-duration" value="4.5" step="0.5" min="0.5">
+
+        <button class="btn" id="rec-btn">Найти технику</button>
+        <div id="rec-error" class="error-msg"></div>
+        <div id="rec-results"></div>
+      </div>
+
+      <!-- ROUTE PANEL -->
+      <div class="panel" id="panel-route">
+        <label>Откуда</label>
+        <div class="coord-group">
+          <input type="number" id="route-from-lon" placeholder="Долгота" value="68.1" step="0.01">
+          <input type="number" id="route-from-lat" placeholder="Широта" value="51.6" step="0.01">
+        </div>
+        <label>Куда</label>
+        <div class="coord-group">
+          <input type="number" id="route-to-lon" placeholder="Долгота" value="68.3" step="0.01">
+          <input type="number" id="route-to-lat" placeholder="Широта" value="51.8" step="0.01">
+        </div>
+        <p style="font-size:11px;color:#8b949e;margin-top:8px;">Нажмите на карту, чтобы задать точки Откуда/Куда.</p>
+        <button class="btn" id="route-btn">Построить маршрут</button>
+        <div id="route-error" class="error-msg"></div>
+        <div id="route-results"></div>
+      </div>
+
+      <!-- MULTITASK PANEL -->
+      <div class="panel" id="panel-multitask">
+        <label>Транспорт</label>
+        <select id="mt-vehicle"></select>
+
+        <label>Задания</label>
+        <div id="mt-task-list"></div>
+        <button class="btn" style="background:#21262d;border-color:#30363d;margin-top:8px;" id="mt-add-task">+ Добавить задание</button>
+
+        <button class="btn" id="mt-btn">Оптимизировать</button>
+        <div id="mt-error" class="error-msg"></div>
+        <div id="mt-results"></div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <script>
+    const API = '';
+    let tasks = [], vehicles = [], wells = [];
+    let map, routeLayer, markerLayer;
+    let clickMode = null;
+
+    const TASK_TYPE_RU = {
+      transport_fluid: 'Перевозка жидкости',
+      cement_job: 'Цементирование',
+      well_service: 'Обслуживание скважины',
+      drilling_support: 'Поддержка бурения',
+      steam_injection: 'Закачка пара',
+    };
+    const PRIORITY_RU = { high: 'высокий', medium: 'средний', low: 'низкий' };
+
+    async function init() {
+      map = L.map('map').setView([51.75, 68.25], 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+      routeLayer = L.layerGroup().addTo(map);
+      markerLayer = L.layerGroup().addTo(map);
+
+      map.on('click', onMapClick);
+
+      const [healthRes, tasksRes, vehiclesRes, wellsRes] = await Promise.all([
+        fetch(`${API}/health`).then(r => r.json()),
+        fetch(`${API}/api/tasks`).then(r => r.json()),
+        fetch(`${API}/api/vehicles`).then(r => r.json()),
+        fetch(`${API}/api/wells`).then(r => r.json()),
+      ]);
+
+      tasks = tasksRes;
+      vehicles = vehiclesRes;
+      wells = wellsRes;
+
+      document.getElementById('statusDot').style.background = '#3fb950';
+      document.getElementById('statusInfo').textContent =
+        `${healthRes.nodes} узлов | ${healthRes.edges} ребер | ${healthRes.vehicles} ед. техники | ${healthRes.wells} скважин`;
+
+      populateSelects();
+      showWellsAndVehicles();
+    }
+
+    function populateSelects() {
+      const recTask = document.getElementById('rec-task');
+      tasks.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.task_id;
+        const typeRu = TASK_TYPE_RU[t.task_type] || t.task_type;
+        const prioRu = PRIORITY_RU[t.priority] || t.priority;
+        opt.textContent = `${t.task_id} — ${typeRu} (${prioRu}) -> ${t.destination_uwi}`;
+        opt.dataset.uwi = t.destination_uwi;
+        opt.dataset.priority = t.priority;
+        opt.dataset.start = t.planned_start;
+        opt.dataset.duration = t.duration_hours;
+        recTask.appendChild(opt);
+      });
+      recTask.addEventListener('change', () => {
+        const opt = recTask.selectedOptions[0];
+        document.getElementById('rec-priority').value = opt.dataset.priority;
+        document.getElementById('rec-start').value = opt.dataset.start.slice(0, 16);
+        document.getElementById('rec-duration').value = opt.dataset.duration;
+      });
+      if (recTask.options.length > 0) recTask.dispatchEvent(new Event('change'));
+
+      const mtVehicle = document.getElementById('mt-vehicle');
+      vehicles.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.vehicle_id;
+        opt.textContent = `${v.vehicle_name} (${v.vehicle_type})`;
+        mtVehicle.appendChild(opt);
+      });
+
+      addMultitaskRow();
+    }
+
+    function showWellsAndVehicles() {
+      wells.forEach(w => {
+        L.circleMarker([w.lat, w.lon], {
+          radius: 4, color: '#3fb950', fillColor: '#3fb950', fillOpacity: 0.6, weight: 1
+        }).bindPopup(`<b>${w.uwi}</b><br>${w.name}`).addTo(markerLayer);
+      });
+      vehicles.forEach(v => {
+        L.circleMarker([v.lat, v.lon], {
+          radius: 6, color: '#58a6ff', fillColor: '#58a6ff', fillOpacity: 0.8, weight: 2
+        }).bindPopup(`<b>${v.vehicle_name}</b><br>${v.vehicle_type}<br>${v.vehicle_id}`).addTo(markerLayer);
+      });
+    }
+
+    // -- Tabs --
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`panel-${tab.dataset.panel}`).classList.add('active');
+      });
+    });
+
+    // -- Map Click --
+    function onMapClick(e) {
+      const activePanel = document.querySelector('.tab.active').dataset.panel;
+      if (activePanel !== 'route') return;
+      const lon = e.latlng.lng.toFixed(4);
+      const lat = e.latlng.lat.toFixed(4);
+      if (!clickMode || clickMode === 'from') {
+        document.getElementById('route-from-lon').value = lon;
+        document.getElementById('route-from-lat').value = lat;
+        clickMode = 'to';
+      } else {
+        document.getElementById('route-to-lon').value = lon;
+        document.getElementById('route-to-lat').value = lat;
+        clickMode = 'from';
+      }
+    }
+
+    // -- Recommend --
+    document.getElementById('rec-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('rec-btn');
+      const errEl = document.getElementById('rec-error');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Поиск...';
+
+      const taskOpt = document.getElementById('rec-task').selectedOptions[0];
+      const body = {
+        task_id: taskOpt.value,
+        priority: document.getElementById('rec-priority').value,
+        destination_uwi: taskOpt.dataset.uwi,
+        planned_start: document.getElementById('rec-start').value + ':00',
+        duration_hours: parseFloat(document.getElementById('rec-duration').value),
+      };
+
+      try {
+        const res = await fetch(`${API}/api/recommendations`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Ошибка запроса');
+        }
+        const data = await res.json();
+        renderRecommendations(data);
+      } catch (e) {
+        errEl.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Найти технику';
+      }
+    });
+
+    function renderRecommendations(data) {
+      const container = document.getElementById('rec-results');
+      container.innerHTML = '';
+      routeLayer.clearLayers();
+
+      if (!data.recommendations.length) {
+        container.innerHTML = '<div class="result-card"><h4>Техника не найдена</h4></div>';
+        return;
+      }
+
+      data.recommendations.forEach((v, i) => {
+        const card = document.createElement('div');
+        card.className = 'result-card';
+        const pct = Math.round(v.score * 100);
+        card.innerHTML = `
+          <h4>#${i + 1} ${v.vehicle_name}</h4>
+          <div class="metric"><span>Рейтинг</span><span class="val">${pct}%</span></div>
+          <div class="score-bar"><div class="fill" style="width:${pct}%"></div></div>
+          <div class="metric"><span>Расстояние</span><span class="val">${(v.distance_m / 1000).toFixed(1)} км</span></div>
+          <div class="metric"><span>Прибытие</span><span class="val">${v.eta_minutes.toFixed(0)} мин</span></div>
+          <div class="metric"><span>Тип</span><span class="val">${v.vehicle_type}</span></div>
+          <div class="reason">${v.reason}</div>
+        `;
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => showVehicleRoute(v));
+        container.appendChild(card);
+      });
+
+      showVehicleRoute(data.recommendations[0]);
+    }
+
+    async function showVehicleRoute(v) {
+      const vehicle = vehicles.find(veh => veh.vehicle_id === v.vehicle_id);
+      if (!vehicle) return;
+      const taskOpt = document.getElementById('rec-task').selectedOptions[0];
+      const well = wells.find(w => w.uwi === taskOpt.dataset.uwi);
+      if (!well) return;
+
+      try {
+        const res = await fetch(`${API}/api/route`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ from_lon: vehicle.lon, from_lat: vehicle.lat, to_lon: well.lon, to_lat: well.lat })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        drawRoute(data.path_coords);
+      } catch (_) {}
+    }
+
+    // -- Route --
+    document.getElementById('route-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('route-btn');
+      const errEl = document.getElementById('route-error');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Расчет...';
+
+      const body = {
+        from_lon: parseFloat(document.getElementById('route-from-lon').value),
+        from_lat: parseFloat(document.getElementById('route-from-lat').value),
+        to_lon: parseFloat(document.getElementById('route-to-lon').value),
+        to_lat: parseFloat(document.getElementById('route-to-lat').value),
+      };
+
+      try {
+        const res = await fetch(`${API}/api/route`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Ошибка запроса');
+        }
+        const data = await res.json();
+        renderRoute(data);
+        drawRoute(data.path_coords);
+      } catch (e) {
+        errEl.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Построить маршрут';
+      }
+    });
+
+    function renderRoute(data) {
+      const container = document.getElementById('route-results');
+      container.innerHTML = `
+        <div class="result-card">
+          <h4>Результат маршрута</h4>
+          <div class="metric"><span>Расстояние</span><span class="val">${(data.distance_m / 1000).toFixed(1)} км</span></div>
+          <div class="metric"><span>Время в пути</span><span class="val">${data.duration_minutes.toFixed(0)} мин</span></div>
+          <div class="metric"><span>Точки маршрута</span><span class="val">${data.path_coords.length}</span></div>
+        </div>
+      `;
+    }
+
+    function drawRoute(pathCoords) {
+      routeLayer.clearLayers();
+      if (!pathCoords || !pathCoords.length) return;
+
+      const latlngs = pathCoords.map(c => [c[1], c[0]]);
+      L.polyline(latlngs, { color: '#f0883e', weight: 4, opacity: 0.9 }).addTo(routeLayer);
+
+      L.circleMarker(latlngs[0], { radius: 8, color: '#3fb950', fillColor: '#3fb950', fillOpacity: 1, weight: 2 })
+        .bindPopup('Старт').addTo(routeLayer);
+      L.circleMarker(latlngs[latlngs.length - 1], { radius: 8, color: '#f85149', fillColor: '#f85149', fillOpacity: 1, weight: 2 })
+        .bindPopup('Назначение').addTo(routeLayer);
+
+      map.fitBounds(L.latLngBounds(latlngs).pad(0.1));
+    }
+
+    // -- Multitask --
+    function addMultitaskRow() {
+      const list = document.getElementById('mt-task-list');
+      const row = document.createElement('div');
+      row.className = 'task-row';
+      const sel = document.createElement('select');
+      sel.className = 'mt-task-select';
+      tasks.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify({ task_id: t.task_id, destination_uwi: t.destination_uwi, priority: t.priority, duration_hours: t.duration_hours });
+        const typeRu = TASK_TYPE_RU[t.task_type] || t.task_type;
+        opt.textContent = `${t.task_id} — ${typeRu} -> ${t.destination_uwi}`;
+        sel.appendChild(opt);
+      });
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.onclick = () => { if (list.children.length > 1) row.remove(); };
+      row.appendChild(sel);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    }
+
+    document.getElementById('mt-add-task').addEventListener('click', addMultitaskRow);
+
+    document.getElementById('mt-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('mt-btn');
+      const errEl = document.getElementById('mt-error');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Оптимизация...';
+
+      const taskInputs = [];
+      document.querySelectorAll('.mt-task-select').forEach(sel => {
+        taskInputs.push(JSON.parse(sel.value));
+      });
+
+      const body = {
+        vehicle_id: document.getElementById('mt-vehicle').value,
+        tasks: taskInputs,
+      };
+
+      try {
+        const res = await fetch(`${API}/api/multitask`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Ошибка запроса');
+        }
+        const data = await res.json();
+        renderMultitask(data);
+      } catch (e) {
+        errEl.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Оптимизировать';
+      }
+    });
+
+    function renderMultitask(data) {
+      const container = document.getElementById('mt-results');
+      routeLayer.clearLayers();
+      const savingsClass = data.savings_percent >= 5 ? 'good' : '';
+
+      let html = `
+        <div class="result-card">
+          <h4>Результат оптимизации</h4>
+          <div class="metric"><span>Базовый пробег</span><span class="val">${(data.baseline_total_m / 1000).toFixed(1)} км</span></div>
+          <div class="metric"><span>Оптимизированный</span><span class="val">${(data.optimized_total_m / 1000).toFixed(1)} км</span></div>
+          <div class="metric"><span>Экономия</span><span class="savings-badge ${savingsClass}">${data.savings_percent.toFixed(1)}%</span></div>
+        </div>
+      `;
+
+      data.groups.forEach(g => {
+        html += `<div class="group-header">Группа ${g.group_id + 1} &mdash; ${(g.total_distance_m / 1000).toFixed(1)} км, ${g.total_duration_minutes.toFixed(0)} мин</div>`;
+        g.stops.forEach((s, i) => {
+          html += `<div class="stop-item">${i + 1}. <span class="uwi">${s.destination_uwi}</span> (${s.task_id}) &mdash; +${(s.distance_from_prev_m / 1000).toFixed(1)} км</div>`;
+        });
+      });
+
+      container.innerHTML = html;
+
+      data.groups.forEach(g => {
+        const vehicle = vehicles.find(v => v.vehicle_id === g.vehicle_id);
+        if (vehicle) {
+          L.circleMarker([vehicle.lat, vehicle.lon], { radius: 8, color: '#58a6ff', fillColor: '#58a6ff', fillOpacity: 1, weight: 2 })
+            .bindPopup('Позиция техники').addTo(routeLayer);
+        }
+        g.stops.forEach((s, i) => {
+          const well = wells.find(w => w.uwi === s.destination_uwi);
+          if (well) {
+            const marker = L.marker([well.lat, well.lon]).addTo(routeLayer);
+            marker.bindPopup(`Остановка ${i + 1}: ${s.task_id}<br>${s.destination_uwi}`);
+          }
+        });
+      });
+
+      const allPts = [];
+      data.groups.forEach(g => {
+        g.stops.forEach(s => {
+          const w = wells.find(w => w.uwi === s.destination_uwi);
+          if (w) allPts.push([w.lat, w.lon]);
+        });
+        const v = vehicles.find(v => v.vehicle_id === g.vehicle_id);
+        if (v) allPts.push([v.lat, v.lon]);
+      });
+      if (allPts.length > 1) map.fitBounds(L.latLngBounds(allPts).pad(0.15));
+    }
+
+    // -- Start --
+    init().catch(err => {
+      document.getElementById('statusDot').style.background = '#f85149';
+      document.getElementById('statusInfo').textContent = 'Не удалось подключиться';
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
