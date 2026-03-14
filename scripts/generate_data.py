@@ -9,6 +9,9 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Set DATABASE_URL to SQLite before importing app modules
+os.environ["DATABASE_URL"] = "sqlite:///data/synthetic.db"
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
