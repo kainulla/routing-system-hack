@@ -2,6 +2,7 @@
 import logging
 import os
 import threading
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -52,7 +53,8 @@ def _load_data(app: FastAPI):
         _ready.set()
         logger.info("VRP backend ready.")
     except Exception as e:
-        logger.error(f"Failed to initialize: {e}")
+        logger.error(f"Failed to initialize: {e}\n{traceback.format_exc()}")
+        app.state._init_error = str(e)
         _ready.set()
 
 
@@ -79,7 +81,8 @@ def health_check():
     if not _ready.is_set():
         return {"status": "loading"}
     if not hasattr(app.state, "road_graph"):
-        raise HTTPException(status_code=503, detail="Failed to initialize")
+        err = getattr(app.state, "_init_error", "unknown")
+        raise HTTPException(status_code=503, detail=f"Failed to initialize: {err}")
     return {
         "status": "ok",
         "nodes": app.state.road_graph.num_nodes,
