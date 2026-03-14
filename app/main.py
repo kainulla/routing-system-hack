@@ -81,8 +81,10 @@ def health_check():
     if not _ready.is_set():
         return {"status": "loading"}
     if not hasattr(app.state, "road_graph"):
+        from app.config import settings
+        db_type = "postgresql" if "postgresql" in settings.DATABASE_URL else "sqlite"
         err = getattr(app.state, "_init_error", "unknown")
-        raise HTTPException(status_code=503, detail=f"Failed to initialize: {err}")
+        raise HTTPException(status_code=503, detail=f"Failed to initialize ({db_type}): {err}")
     return {
         "status": "ok",
         "nodes": app.state.road_graph.num_nodes,
