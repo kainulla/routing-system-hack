@@ -20,7 +20,7 @@
       display: flex; align-items: center; gap: 16px;
     }
     header h1 { font-size: 16px; font-weight: 600; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #484f58; }
     .status-info { font-size: 12px; color: #8b949e; }
 
     .sidebar {
@@ -108,8 +108,8 @@
 
       <!-- RECOMMEND PANEL -->
       <div class="panel active" id="panel-recommend">
-        <label>Задание</label>
-        <select id="rec-task"></select>
+        <label>Скважина назначения</label>
+        <select id="rec-well"></select>
 
         <label>Приоритет</label>
         <select id="rec-priority">
@@ -119,7 +119,7 @@
         </select>
 
         <label>Плановое начало</label>
-        <input type="datetime-local" id="rec-start" value="2025-02-20T08:00">
+        <input type="datetime-local" id="rec-start">
 
         <label>Длительность (часы)</label>
         <input type="number" id="rec-duration" value="4.5" step="0.5" min="0.5">
@@ -133,13 +133,13 @@
       <div class="panel" id="panel-route">
         <label>Откуда</label>
         <div class="coord-group">
-          <input type="number" id="route-from-lon" placeholder="Долгота" value="68.1" step="0.01">
-          <input type="number" id="route-from-lat" placeholder="Широта" value="51.6" step="0.01">
+          <input type="number" id="route-from-lon" placeholder="Долгота" step="0.01">
+          <input type="number" id="route-from-lat" placeholder="Широта" step="0.01">
         </div>
         <label>Куда</label>
         <div class="coord-group">
-          <input type="number" id="route-to-lon" placeholder="Долгота" value="68.3" step="0.01">
-          <input type="number" id="route-to-lat" placeholder="Широта" value="51.8" step="0.01">
+          <input type="number" id="route-to-lon" placeholder="Долгота" step="0.01">
+          <input type="number" id="route-to-lat" placeholder="Широта" step="0.01">
         </div>
         <p style="font-size:11px;color:#8b949e;margin-top:8px;">Нажмите на карту, чтобы задать точки Откуда/Куда.</p>
         <button class="btn" id="route-btn">Построить маршрут</button>
@@ -149,9 +149,9 @@
 
       <!-- MULTITASK PANEL -->
       <div class="panel" id="panel-multitask">
-        <label>Задания</label>
+        <label>Скважины (задачи)</label>
         <div id="mt-task-list"></div>
-        <button class="btn" style="background:#21262d;border-color:#30363d;margin-top:8px;" id="mt-add-task">+ Добавить задание</button>
+        <button class="btn" style="background:#21262d;border-color:#30363d;margin-top:8px;" id="mt-add-task">+ Добавить скважину</button>
 
         <label>Макс. коэф. объезда</label>
         <input type="number" id="mt-detour" value="1.4" step="0.1" min="1.0" max="3.0">
@@ -167,21 +167,33 @@
 
   <script>
     const API = '';
-    let tasks = [], vehicles = [], wells = [];
+    let vehicles = [], wells = [], wellsWithCoords = [];
     let map, routeLayer, markerLayer;
     let clickMode = null;
 
-    const TASK_TYPE_RU = {
-      transport_fluid: 'Перевозка жидкости',
-      cement_job: 'Цементирование',
-      well_service: 'Обслуживание скважины',
-      drilling_support: 'Поддержка бурения',
-      steam_injection: 'Закачка пара',
-    };
-    const PRIORITY_RU = { high: 'высокий', medium: 'средний', low: 'низкий' };
-
     async function init() {
-      map = L.map('map').setView([51.75, 68.25], 10);
+      // Fetch data first, then init map
+      const [healthRes, vehiclesRes, wellsRes] = await Promise.all([
+        fetch(`${API}/health`).then(r => r.json()),
+        fetch(`${API}/api/vehicles`).then(r => r.json()),
+        fetch(`${API}/api/wells`).then(r => r.json()),
+      ]);
+
+      vehicles = vehiclesRes;
+      wells = wellsRes;
+      wellsWithCoords = wells.filter(w => w.latitude != null && w.longitude != null);
+
+      // Compute center from vehicles
+      let centerLat = 49.6, centerLon = 59.2;
+      if (vehicles.length > 0) {
+        centerLat = vehicles.reduce((s, v) => s + v.lat, 0) / vehicles.length;
+        centerLon = vehicles.reduce((s, v) => s + v.lon, 0) / vehicles.length;
+      } else if (wellsWithCoords.length > 0) {
+        centerLat = wellsWithCoords.reduce((s, w) => s + w.latitude, 0) / wellsWithCoords.length;
+        centerLon = wellsWithCoords.reduce((s, w) => s + w.longitude, 0) / wellsWithCoords.length;
+      }
+
+      map = L.map('map').setView([centerLat, centerLon], 10);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
@@ -190,55 +202,47 @@
 
       map.on('click', onMapClick);
 
-      const [healthRes, tasksRes, vehiclesRes, wellsRes] = await Promise.all([
-        fetch(`${API}/health`).then(r => r.json()),
-        fetch(`${API}/api/tasks`).then(r => r.json()),
-        fetch(`${API}/api/vehicles`).then(r => r.json()),
-        fetch(`${API}/api/wells`).then(r => r.json()),
-      ]);
+      // Set default route coords from first vehicle
+      if (vehicles.length > 0) {
+        document.getElementById('route-from-lon').value = vehicles[0].lon.toFixed(4);
+        document.getElementById('route-from-lat').value = vehicles[0].lat.toFixed(4);
+      }
+      if (wellsWithCoords.length > 0) {
+        document.getElementById('route-to-lon').value = wellsWithCoords[0].longitude.toFixed(4);
+        document.getElementById('route-to-lat').value = wellsWithCoords[0].latitude.toFixed(4);
+      }
 
-      tasks = tasksRes;
-      vehicles = vehiclesRes;
-      wells = wellsRes;
+      // Set default planned start to now
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      document.getElementById('rec-start').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
       document.getElementById('statusDot').style.background = '#3fb950';
       document.getElementById('statusInfo').textContent =
-        `${healthRes.nodes} узлов | ${healthRes.edges} ребер | ${healthRes.vehicles} ед. техники | ${healthRes.wells} скважин`;
+        `${healthRes.nodes} узлов | ${healthRes.edges} рёбер | ${healthRes.vehicles} ед. техники | ${healthRes.wells} скважин`;
 
       populateSelects();
       showWellsAndVehicles();
     }
 
     function populateSelects() {
-      const recTask = document.getElementById('rec-task');
-      tasks.forEach(t => {
+      // Populate well selector for recommendations
+      const recWell = document.getElementById('rec-well');
+      wellsWithCoords.forEach(w => {
         const opt = document.createElement('option');
-        opt.value = t.task_id;
-        const typeRu = TASK_TYPE_RU[t.task_type] || t.task_type;
-        const prioRu = PRIORITY_RU[t.priority] || t.priority;
-        opt.textContent = `${t.task_id} — ${typeRu} (${prioRu}) -> ${t.destination_uwi}`;
-        opt.dataset.uwi = t.destination_uwi;
-        opt.dataset.priority = t.priority;
-        opt.dataset.start = t.planned_start;
-        opt.dataset.duration = t.planned_duration_hours;
-        recTask.appendChild(opt);
+        opt.value = w.uwi;
+        opt.textContent = `${w.uwi} — ${w.well_name || 'Без имени'}`;
+        recWell.appendChild(opt);
       });
-      recTask.addEventListener('change', () => {
-        const opt = recTask.selectedOptions[0];
-        document.getElementById('rec-priority').value = opt.dataset.priority;
-        document.getElementById('rec-start').value = opt.dataset.start.slice(0, 16);
-        document.getElementById('rec-duration').value = opt.dataset.duration;
-      });
-      if (recTask.options.length > 0) recTask.dispatchEvent(new Event('change'));
 
       addMultitaskRow();
     }
 
     function showWellsAndVehicles() {
-      wells.forEach(w => {
+      wellsWithCoords.forEach(w => {
         L.circleMarker([w.latitude, w.longitude], {
           radius: 4, color: '#3fb950', fillColor: '#3fb950', fillOpacity: 0.6, weight: 1
-        }).bindPopup(`<b>${w.uwi}</b><br>${w.well_name}`).addTo(markerLayer);
+        }).bindPopup(`<b>${w.uwi}</b><br>${w.well_name || ''}`).addTo(markerLayer);
       });
       vehicles.forEach(v => {
         L.circleMarker([v.lat, v.lon], {
@@ -282,11 +286,18 @@
       btn.disabled = true;
       btn.textContent = 'Поиск...';
 
-      const taskOpt = document.getElementById('rec-task').selectedOptions[0];
+      const wellUwi = document.getElementById('rec-well').value;
+      if (!wellUwi) {
+        errEl.textContent = 'Выберите скважину';
+        btn.disabled = false;
+        btn.textContent = 'Найти технику';
+        return;
+      }
+
       const body = {
-        task_id: taskOpt.value,
+        task_id: 'manual-' + Date.now(),
         priority: document.getElementById('rec-priority').value,
-        destination_uwi: taskOpt.dataset.uwi,
+        destination_uwi: wellUwi,
         planned_start: document.getElementById('rec-start').value + ':00',
         planned_duration_hours: parseFloat(document.getElementById('rec-duration').value),
       };
@@ -343,9 +354,9 @@
     async function showVehicleRoute(u) {
       const vehicle = vehicles.find(v => v.wialon_id === u.wialon_id);
       if (!vehicle) return;
-      const taskOpt = document.getElementById('rec-task').selectedOptions[0];
-      const well = wells.find(w => w.uwi === taskOpt.dataset.uwi);
-      if (!well) return;
+      const wellUwi = document.getElementById('rec-well').value;
+      const well = wells.find(w => w.uwi === wellUwi);
+      if (!well || well.longitude == null || well.latitude == null) return;
 
       try {
         const res = await fetch(`${API}/api/route`, {
@@ -367,7 +378,7 @@
       const errEl = document.getElementById('route-error');
       errEl.textContent = '';
       btn.disabled = true;
-      btn.textContent = 'Расчет...';
+      btn.textContent = 'Расчёт...';
 
       const body = {
         from: {
@@ -434,11 +445,10 @@
       row.className = 'task-row';
       const sel = document.createElement('select');
       sel.className = 'mt-task-select';
-      tasks.forEach(t => {
+      wellsWithCoords.forEach(w => {
         const opt = document.createElement('option');
-        opt.value = t.task_id;
-        const typeRu = TASK_TYPE_RU[t.task_type] || t.task_type;
-        opt.textContent = `${t.task_id} — ${typeRu} -> ${t.destination_uwi}`;
+        opt.value = w.uwi;
+        opt.textContent = `${w.uwi} — ${w.well_name || 'Без имени'}`;
         sel.appendChild(opt);
       });
       const removeBtn = document.createElement('button');
@@ -510,34 +520,21 @@
 
       data.groups.forEach((group, gi) => {
         html += `<div class="group-header">Группа ${gi + 1} &mdash; ${group.length} задач(и)</div>`;
-        group.forEach((tid, i) => {
-          html += `<div class="stop-item">${i + 1}. <span class="uwi">${tid}</span></div>`;
+        group.forEach((uwi, i) => {
+          html += `<div class="stop-item">${i + 1}. <span class="uwi">${uwi}</span></div>`;
         });
       });
 
       container.innerHTML = html;
 
-      // Show task destinations on map
-      data.groups.forEach(group => {
-        group.forEach((tid, i) => {
-          const task = tasks.find(t => t.task_id === tid);
-          if (task) {
-            const well = wells.find(w => w.uwi === task.destination_uwi);
-            if (well) {
-              const marker = L.marker([well.latitude, well.longitude]).addTo(routeLayer);
-              marker.bindPopup(`Задача: ${tid}<br>${task.destination_uwi}`);
-            }
-          }
-        });
-      });
-
+      // Show well destinations on map
       const allPts = [];
       data.groups.forEach(group => {
-        group.forEach(tid => {
-          const task = tasks.find(t => t.task_id === tid);
-          if (task) {
-            const w = wells.find(w => w.uwi === task.destination_uwi);
-            if (w) allPts.push([w.latitude, w.longitude]);
+        group.forEach(uwi => {
+          const w = wellsWithCoords.find(w => w.uwi === uwi);
+          if (w) {
+            L.marker([w.latitude, w.longitude]).bindPopup(`<b>${uwi}</b><br>${w.well_name || ''}`).addTo(routeLayer);
+            allPts.push([w.latitude, w.longitude]);
           }
         });
       });

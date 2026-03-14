@@ -13,7 +13,17 @@ def compute_route(
     repo: SQLAlchemyRepository | None = None,
 ) -> RouteResponse | None:
     from_node, _ = road_graph.snap_to_node(req.from_point.lon, req.from_point.lat)
-    to_node, _ = road_graph.snap_to_node(req.to.lon, req.to.lat)
+
+    to_lon = req.to.lon
+    to_lat = req.to.lat
+    if (to_lon is None or to_lat is None) and req.to.uwi and repo:
+        well = repo.get_well_by_uwi(req.to.uwi)
+        if well and well.longitude is not None and well.latitude is not None:
+            to_lon = well.longitude
+            to_lat = well.latitude
+    if to_lon is None or to_lat is None:
+        return None
+    to_node, _ = road_graph.snap_to_node(to_lon, to_lat)
 
     path = path_service.find_path(from_node, to_node)
     if path is None:

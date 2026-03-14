@@ -36,8 +36,8 @@ class RouteFrom(BaseModel):
 
 class RouteTo(BaseModel):
     uwi: str | None = None
-    lon: float
-    lat: float
+    lon: float | None = None
+    lat: float | None = None
 
 
 class RouteRequest(BaseModel):

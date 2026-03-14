@@ -16,7 +16,7 @@ def recommend_vehicles(
     path_service: ShortestPathService,
 ) -> RecommendationResponse:
     well = repo.get_well_by_uwi(req.destination_uwi)
-    if not well:
+    if not well or well.longitude is None or well.latitude is None:
         return RecommendationResponse(
             task_id=req.task_id,
             destination_uwi=req.destination_uwi,
@@ -25,8 +25,12 @@ def recommend_vehicles(
 
     dest_node, _ = road_graph.snap_to_node(well.longitude, well.latitude)
 
-    task_obj = repo.get_task_by_id(req.task_id)
-    task_type = task_obj.task_type if task_obj else "transport_fluid"
+    try:
+        task_obj = repo.get_task_by_id(req.task_id)
+        task_type = task_obj.task_type if task_obj else "transport_fluid"
+    except Exception:
+        repo.session.rollback()
+        task_type = "transport_fluid"
 
     candidates = fleet.get_compatible_vehicles(task_type)
     if not candidates:

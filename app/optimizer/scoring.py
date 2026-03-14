@@ -33,9 +33,9 @@ def compute_score(
     priority: str,
     free_at: datetime,
     planned_start: datetime,
-    max_distance_m: float = 50_000,
-    max_eta_min: float = 120,
-    max_wait_min: float = 240,
+    max_distance_m: float = 200_000,
+    max_eta_min: float = 400,
+    max_wait_min: float = 480,
 ) -> tuple[float, str]:
     """Compute spec-aligned score [0,1]. Higher = better."""
     w = settings.SCORING_WEIGHTS

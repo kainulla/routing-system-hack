@@ -11,13 +11,21 @@ def build_route_map(
     fleet: FleetState,
     repo: SQLAlchemyRepository,
 ) -> str:
-    center_lat = 51.75
-    center_lon = 68.25
+    # Auto-center on vehicle positions
+    if fleet.vehicles:
+        lats = [v.lat for v in fleet.vehicles.values()]
+        lons = [v.lon for v in fleet.vehicles.values()]
+        center_lat = sum(lats) / len(lats)
+        center_lon = sum(lons) / len(lons)
+    else:
+        center_lat, center_lon = 49.6, 59.2
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
 
     # Wells
     wells = repo.get_wells()
     for w in wells:
+        if w.latitude is None or w.longitude is None:
+            continue
         folium.CircleMarker(
             location=[w.latitude, w.longitude],
             radius=4,

@@ -42,12 +42,12 @@ def _load_data(app: FastAPI):
         well_count = len(wells)
         logger.info(f"Wells loaded: {well_count}")
 
-        app.state.repo = repo
+        session.close()
+
         app.state.road_graph = road_graph
         app.state.fleet = fleet
         app.state.path_service = path_service
         app.state.well_count = well_count
-        app.state._session = session
 
         _ready.set()
         logger.info("VRP backend ready.")
@@ -61,8 +61,6 @@ async def lifespan(app: FastAPI):
     thread = threading.Thread(target=_load_data, args=(app,), daemon=True)
     thread.start()
     yield
-    if hasattr(app.state, "_session"):
-        app.state._session.close()
     logger.info("VRP backend shut down.")
 
 

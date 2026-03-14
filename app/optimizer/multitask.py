@@ -90,11 +90,20 @@ def optimize_multitask(
     # Resolve task_ids to task objects and their destination nodes
     task_nodes: list[tuple[str, int]] = []  # (task_id, node_id)
     for tid in req.task_ids:
-        task_obj = repo.get_task_by_id(tid)
+        try:
+            task_obj = repo.get_task_by_id(tid)
+        except Exception:
+            repo.session.rollback()
+            task_obj = None
         if not task_obj:
+            # Treat task_id as a well UWI directly
+            well = repo.get_well_by_uwi(tid)
+            if well and well.longitude is not None and well.latitude is not None:
+                node, _ = road_graph.snap_to_node(well.longitude, well.latitude)
+                task_nodes.append((tid, node))
             continue
         well = repo.get_well_by_uwi(task_obj.destination_uwi)
-        if not well:
+        if not well or well.longitude is None or well.latitude is None:
             continue
         node, _ = road_graph.snap_to_node(well.longitude, well.latitude)
         task_nodes.append((tid, node))
@@ -112,7 +121,11 @@ def optimize_multitask(
         )
 
     # Pick a reference vehicle (first compatible or first available)
-    first_task = repo.get_task_by_id(req.task_ids[0])
+    try:
+        first_task = repo.get_task_by_id(req.task_ids[0])
+    except Exception:
+        repo.session.rollback()
+        first_task = None
     candidates = fleet.get_compatible_vehicles(first_task.task_type) if first_task else []
     if not candidates:
         candidates = list(fleet.vehicles.values())
