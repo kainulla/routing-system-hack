@@ -1,10 +1,16 @@
 from sqlalchemy import Column, Integer, BigInteger, Float, String, DateTime, Boolean, Date, Text
 from sqlalchemy.types import JSON
 from app.db.base import Base
+from app.config import settings
+
+# Use schema prefix for PostgreSQL, none for SQLite
+_pg = "postgresql" in settings.DATABASE_URL
+_ref_schema = "references" if _pg else None
 
 
 class RoadNode(Base):
     __tablename__ = "road_nodes"
+    __table_args__ = {"schema": _ref_schema} if _ref_schema else {}
     id = Column(Integer, primary_key=True)
     node_id = Column(Integer, unique=True, nullable=False)
     lon = Column(Float, nullable=False)
@@ -13,6 +19,7 @@ class RoadNode(Base):
 
 class RoadEdge(Base):
     __tablename__ = "road_edges"
+    __table_args__ = {"schema": _ref_schema} if _ref_schema else {}
     id = Column(Integer, primary_key=True)
     source = Column(Integer, nullable=False)
     target = Column(Integer, nullable=False)
@@ -21,6 +28,7 @@ class RoadEdge(Base):
 
 class Well(Base):
     __tablename__ = "wells"
+    __table_args__ = {"schema": _ref_schema} if _ref_schema else {}
     id = Column(Integer, primary_key=True)
     uwi = Column(String(50), nullable=False, unique=True)
     latitude = Column(Float, nullable=False)
@@ -29,7 +37,8 @@ class Well(Base):
 
 
 class WialonSnapshot(Base):
-    __tablename__ = "wialon_snapshots"
+    __tablename__ = "wialon_units_snapshot_3"
+    __table_args__ = {"schema": _ref_schema} if _ref_schema else {}
     id = Column(Integer, primary_key=True)
     wialon_id = Column(BigInteger, nullable=False)
     nm = Column(Text, nullable=False)
@@ -37,7 +46,7 @@ class WialonSnapshot(Base):
     pos_y = Column(Float, nullable=False)  # latitude
     pos_t = Column(BigInteger, nullable=False)  # unix timestamp
     registration_plate = Column(Text, nullable=True)
-    snapshot_number = Column(Integer, nullable=False)
+    snapshot_number = Column(Integer, nullable=True)
 
 
 class Task(Base):

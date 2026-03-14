@@ -31,16 +31,18 @@ class SQLAlchemyRepository:
         return self.session.query(Well).all()
 
     def get_latest_snapshot(self) -> list[WialonSnapshot]:
-        max_snap = self.session.query(
-            func.max(WialonSnapshot.snapshot_number)
-        ).scalar()
-        if max_snap is None:
-            return []
-        return (
-            self.session.query(WialonSnapshot)
-            .filter(WialonSnapshot.snapshot_number == max_snap)
-            .all()
-        )
+        if WialonSnapshot.snapshot_number is not None:
+            max_snap = self.session.query(
+                func.max(WialonSnapshot.snapshot_number)
+            ).scalar()
+            if max_snap is not None:
+                return (
+                    self.session.query(WialonSnapshot)
+                    .filter(WialonSnapshot.snapshot_number == max_snap)
+                    .all()
+                )
+        # For real DB (snapshot_3 table) or no snapshot_number, return all
+        return self.session.query(WialonSnapshot).all()
 
     def get_all_snapshots(self) -> list[WialonSnapshot]:
         return self.session.query(WialonSnapshot).all()

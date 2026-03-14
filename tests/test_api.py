@@ -2,6 +2,9 @@
 import os
 import pytest
 
+# Force SQLite for tests
+os.environ["DATABASE_URL"] = "sqlite:///data/synthetic.db"
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "synthetic.db")
 
 
@@ -11,8 +14,9 @@ def client():
         pytest.skip("synthetic.db not found — run scripts/generate_data.py first")
 
     from fastapi.testclient import TestClient
-    from app.main import app
+    from app.main import app, _ready
     with TestClient(app) as c:
+        _ready.wait(timeout=60)
         yield c
 
 

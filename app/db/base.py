@@ -8,14 +8,16 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_engine():
+def get_engine(url: str | None = None):
+    db_url = url or settings.DATABASE_URL
     return create_engine(
-        settings.DATABASE_URL,
-        connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+        db_url,
+        connect_args={"check_same_thread": False} if "sqlite" in db_url else {},
         echo=False,
     )
 
 
+# Lazy engine — created on first import but can be overridden
 engine = get_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

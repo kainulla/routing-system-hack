@@ -6,7 +6,6 @@ from app.api.schemas import (
     RecommendationRequest, RecommendationResponse,
     RouteRequest, RouteResponse, RouteFrom, RouteTo,
     MultitaskRequest, MultitaskResponse,
-    HealthResponse,
 )
 from app.optimizer.recommender import recommend_vehicles
 from app.optimizer.router import compute_route
@@ -16,10 +15,17 @@ from app.viz.map_builder import build_route_map
 router = APIRouter()
 
 
+def _require_ready(request: Request):
+    from app.main import _ready
+    _ready.wait(timeout=300)
+    if not hasattr(request.app.state, "repo"):
+        raise HTTPException(status_code=503, detail="Service is still loading")
+
+
 @router.get("/api/tasks")
 def list_tasks(request: Request):
-    state = request.app.state
-    tasks = state.repo.get_tasks()
+    _require_ready(request)
+    tasks = request.app.state.repo.get_tasks()
     return [
         {
             "task_id": t.task_id,
@@ -39,7 +45,7 @@ def list_tasks(request: Request):
 
 @router.get("/api/vehicles")
 def list_vehicles(request: Request):
-    state = request.app.state
+    _require_ready(request)
     return [
         {
             "wialon_id": v.wialon_id,
@@ -49,14 +55,14 @@ def list_vehicles(request: Request):
             "lat": v.lat,
             "compatible_tasks": v.compatible_tasks,
         }
-        for v in state.fleet.vehicles.values()
+        for v in request.app.state.fleet.vehicles.values()
     ]
 
 
 @router.get("/api/wells")
 def list_wells(request: Request):
-    state = request.app.state
-    wells = state.repo.get_wells()
+    _require_ready(request)
+    wells = request.app.state.repo.get_wells()
     return [
         {
             "uwi": w.uwi,
@@ -68,20 +74,9 @@ def list_wells(request: Request):
     ]
 
 
-@router.get("/health", response_model=HealthResponse)
-def health_check(request: Request):
-    state = request.app.state
-    return HealthResponse(
-        status="ok",
-        nodes=state.road_graph.num_nodes,
-        edges=state.road_graph.num_edges,
-        vehicles=len(state.fleet.vehicles),
-        wells=state.well_count,
-    )
-
-
 @router.post("/api/recommendations", response_model=RecommendationResponse)
 def get_recommendations(req: RecommendationRequest, request: Request):
+    _require_ready(request)
     state = request.app.state
     result = recommend_vehicles(
         req=req,
@@ -97,9 +92,9 @@ def get_recommendations(req: RecommendationRequest, request: Request):
 
 @router.post("/api/route")
 async def get_route(request: Request):
+    _require_ready(request)
     state = request.app.state
     body = await request.json()
-    # Handle "from" key (reserved word in Python)
     from_data = body.get("from", body.get("from_point", {}))
     to_data = body.get("to", {})
     req = RouteRequest(
@@ -119,6 +114,7 @@ async def get_route(request: Request):
 
 @router.post("/api/multitask", response_model=MultitaskResponse)
 def get_multitask(req: MultitaskRequest, request: Request):
+    _require_ready(request)
     state = request.app.state
     result = optimize_multitask(
         req=req,
@@ -132,6 +128,7 @@ def get_multitask(req: MultitaskRequest, request: Request):
 
 @router.get("/api/viz/route", response_class=HTMLResponse)
 def viz_route(request: Request):
+    _require_ready(request)
     state = request.app.state
     html = build_route_map(state.road_graph, state.fleet, state.repo)
     return HTMLResponse(content=html)
