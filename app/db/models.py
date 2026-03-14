@@ -1,10 +1,12 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean
+from sqlalchemy import Column, Integer, BigInteger, Float, String, DateTime, Boolean, Date, Text
+from sqlalchemy.types import JSON
 from app.db.base import Base
 
 
 class RoadNode(Base):
     __tablename__ = "road_nodes"
     id = Column(Integer, primary_key=True)
+    node_id = Column(Integer, unique=True, nullable=False)
     lon = Column(Float, nullable=False)
     lat = Column(Float, nullable=False)
 
@@ -12,31 +14,29 @@ class RoadNode(Base):
 class RoadEdge(Base):
     __tablename__ = "road_edges"
     id = Column(Integer, primary_key=True)
-    from_node = Column(Integer, nullable=False)
-    to_node = Column(Integer, nullable=False)
+    source = Column(Integer, nullable=False)
+    target = Column(Integer, nullable=False)
     weight = Column(Float, nullable=False)  # meters
 
 
 class Well(Base):
     __tablename__ = "wells"
     id = Column(Integer, primary_key=True)
-    uwi = Column(String, nullable=False, unique=True)
-    name = Column(String, nullable=True)
-    lon = Column(Float, nullable=False)
-    lat = Column(Float, nullable=False)
-    nearest_node = Column(Integer, nullable=True)
+    uwi = Column(String(50), nullable=False, unique=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    well_name = Column(String(255), nullable=True)
 
 
 class WialonSnapshot(Base):
     __tablename__ = "wialon_snapshots"
     id = Column(Integer, primary_key=True)
-    vehicle_id = Column(String, nullable=False)
-    vehicle_name = Column(String, nullable=False)
-    vehicle_type = Column(String, nullable=False)
-    lon = Column(Float, nullable=False)
-    lat = Column(Float, nullable=False)
-    speed = Column(Float, nullable=True)
-    timestamp = Column(DateTime, nullable=False)
+    wialon_id = Column(BigInteger, nullable=False)
+    nm = Column(Text, nullable=False)
+    pos_x = Column(Float, nullable=False)  # longitude
+    pos_y = Column(Float, nullable=False)  # latitude
+    pos_t = Column(BigInteger, nullable=False)  # unix timestamp
+    registration_plate = Column(Text, nullable=True)
     snapshot_number = Column(Integer, nullable=False)
 
 
@@ -48,8 +48,9 @@ class Task(Base):
     priority = Column(String, nullable=False)
     destination_uwi = Column(String, nullable=False)
     planned_start = Column(DateTime, nullable=False)
-    duration_hours = Column(Float, nullable=False)
+    planned_duration_hours = Column(Float, nullable=False)
     shift = Column(String, nullable=False)
+    start_day = Column(Date, nullable=True)
     assigned_vehicle = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
 

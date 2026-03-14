@@ -1,9 +1,7 @@
 """Multitask optimization: group tasks, compute TSP within groups."""
 import numpy as np
 
-from app.api.schemas import (
-    MultitaskRequest, MultitaskResponse, TaskGroup, TaskStop,
-)
+from app.api.schemas import MultitaskRequest, MultitaskResponse
 from app.config import settings
 from app.db.repository import SQLAlchemyRepository
 from app.fleet.state import FleetState
@@ -87,57 +85,68 @@ def optimize_multitask(
     fleet: FleetState,
     path_service: ShortestPathService,
 ) -> MultitaskResponse:
-    vehicle = fleet.get_vehicle(req.vehicle_id)
-    if not vehicle:
-        return MultitaskResponse(
-            vehicle_id=req.vehicle_id,
-            groups=[],
-            baseline_total_m=0,
-            optimized_total_m=0,
-            savings_percent=0,
-        )
+    max_detour = req.constraints.max_detour_ratio if req.constraints and req.constraints.max_detour_ratio else settings.DETOUR_RATIO_MAX
 
-    # Resolve task destinations to nodes
-    task_nodes: list[tuple[str, str, int]] = []  # (task_id, uwi, node_id)
-    for t in req.tasks:
-        well = repo.get_well_by_uwi(t.destination_uwi)
-        if well:
-            node = well.nearest_node
-            if node is None:
-                node, _ = road_graph.snap_to_node(well.lon, well.lat)
-            task_nodes.append((t.task_id, t.destination_uwi, node))
+    # Resolve task_ids to task objects and their destination nodes
+    task_nodes: list[tuple[str, int]] = []  # (task_id, node_id)
+    for tid in req.task_ids:
+        task_obj = repo.get_task_by_id(tid)
+        if not task_obj:
+            continue
+        well = repo.get_well_by_uwi(task_obj.destination_uwi)
+        if not well:
+            continue
+        node, _ = road_graph.snap_to_node(well.longitude, well.latitude)
+        task_nodes.append((tid, node))
 
     if not task_nodes:
         return MultitaskResponse(
-            vehicle_id=req.vehicle_id,
             groups=[],
-            baseline_total_m=0,
-            optimized_total_m=0,
+            strategy_summary="Задачи не найдены",
+            total_distance_km=0,
+            total_time_minutes=0,
+            baseline_distance_km=0,
+            baseline_time_minutes=0,
             savings_percent=0,
+            reason="Не удалось найти указанные задачи или их точки назначения",
         )
 
-    vehicle_node = vehicle.nearest_node
-    all_nodes = [vehicle_node] + [tn[2] for tn in task_nodes]
+    # Pick a reference vehicle (first compatible or first available)
+    first_task = repo.get_task_by_id(req.task_ids[0])
+    candidates = fleet.get_compatible_vehicles(first_task.task_type) if first_task else []
+    if not candidates:
+        candidates = list(fleet.vehicles.values())
+    if not candidates:
+        return MultitaskResponse(
+            groups=[req.task_ids],
+            strategy_summary="Нет доступных ТС, все задачи в одной группе",
+            total_distance_km=0,
+            total_time_minutes=0,
+            baseline_distance_km=0,
+            baseline_time_minutes=0,
+            savings_percent=0,
+            reason="Нет доступных транспортных средств",
+        )
 
-    # Compute pairwise distance matrix
+    vehicle = candidates[0]
+    vehicle_node = vehicle.nearest_node
+
+    all_nodes = [vehicle_node] + [tn[1] for tn in task_nodes]
     dist_matrix = path_service.compute_distance_matrix(all_nodes, all_nodes)
 
-    # Greedy clustering with detour ratio constraint
-    max_detour = settings.DETOUR_RATIO_MAX
-    n_tasks = len(task_nodes)
-    assigned = [False] * n_tasks
-    groups: list[TaskGroup] = []
-    group_id = 0
-
     # Baseline: individual trips from vehicle to each task
+    n_tasks = len(task_nodes)
     baseline_total = 0.0
     for i in range(n_tasks):
         d = dist_matrix[0, i + 1]
         if np.isfinite(d):
             baseline_total += d
 
+    # Greedy clustering with detour ratio constraint
+    assigned = [False] * n_tasks
+    groups: list[list[str]] = []
+
     while not all(assigned):
-        # Find next unassigned task closest to vehicle
         best_idx = -1
         best_dist = np.inf
         for i in range(n_tasks):
@@ -150,15 +159,12 @@ def optimize_multitask(
         cluster = [best_idx]
         assigned[best_idx] = True
 
-        # Try adding more tasks to this cluster
         for i in range(n_tasks):
             if assigned[i]:
                 continue
-            # Check if adding this task keeps detour ratio acceptable
             trial = cluster + [i]
             trial_nodes_idx = [0] + [t + 1 for t in trial]
 
-            # Compute simple chain distance
             sub_matrix = dist_matrix[np.ix_(trial_nodes_idx, trial_nodes_idx)]
             tour = _try_or_tools_tsp(sub_matrix)
             if tour is None:
@@ -182,47 +188,50 @@ def optimize_multitask(
         if tour is None:
             tour = _solve_tsp_greedy(sub_matrix)
 
-        stops = []
-        cumulative = 0.0
-        prev_sub = tour[0]  # vehicle position in sub-matrix
+        ordered_task_ids = []
         for step in tour[1:]:
-            seg_dist = sub_matrix[prev_sub, step]
-            if not np.isfinite(seg_dist):
-                seg_dist = 0
-            cumulative += seg_dist
-            # Map sub-matrix index back to task
             orig_task_idx = cluster[step - 1] if step > 0 else 0
-            tn = task_nodes[orig_task_idx]
-            stops.append(TaskStop(
-                task_id=tn[0],
-                destination_uwi=tn[1],
-                distance_from_prev_m=round(seg_dist, 2),
-                cumulative_distance_m=round(cumulative, 2),
-            ))
-            prev_sub = step
+            ordered_task_ids.append(task_nodes[orig_task_idx][0])
 
-        speed_kmh = settings.AVG_SPEED_KMH
-        total_dist = cumulative
-        duration_min = (total_dist / 1000) / speed_kmh * 60
+        groups.append(ordered_task_ids)
 
-        groups.append(TaskGroup(
-            group_id=group_id,
-            vehicle_id=req.vehicle_id,
-            stops=stops,
-            total_distance_m=round(total_dist, 2),
-            total_duration_minutes=round(duration_min, 1),
-        ))
-        group_id += 1
+    # Compute optimized total
+    optimized_total = 0.0
+    for group in groups:
+        group_nodes = [vehicle_node]
+        for tid in group:
+            for tn_id, tn_node in task_nodes:
+                if tn_id == tid:
+                    group_nodes.append(tn_node)
+                    break
+        for k in range(len(group_nodes) - 1):
+            si = all_nodes.index(group_nodes[k])
+            ei = all_nodes.index(group_nodes[k + 1])
+            d = dist_matrix[si, ei]
+            if np.isfinite(d):
+                optimized_total += d
 
-    optimized_total = sum(g.total_distance_m for g in groups)
+    speed_kmh = settings.AVG_SPEED_KMH
     savings = 0.0
     if baseline_total > 0:
         savings = round((1 - optimized_total / baseline_total) * 100, 1)
 
+    n_groups = len(groups)
+    strategy = f"Задачи сгруппированы в {n_groups} маршрут(ов) с учётом ограничения объезда {max_detour:.1f}x"
+    reason_parts = [
+        f"Оптимизировано {n_tasks} задач",
+        f"экономия {max(savings, 0):.1f}%",
+        f"базовый пробег {baseline_total/1000:.1f} км",
+        f"оптимизированный {optimized_total/1000:.1f} км",
+    ]
+
     return MultitaskResponse(
-        vehicle_id=req.vehicle_id,
         groups=groups,
-        baseline_total_m=round(baseline_total, 2),
-        optimized_total_m=round(optimized_total, 2),
+        strategy_summary=strategy,
+        total_distance_km=round(optimized_total / 1000, 2),
+        total_time_minutes=round((optimized_total / 1000) / speed_kmh * 60, 1),
+        baseline_distance_km=round(baseline_total / 1000, 2),
+        baseline_time_minutes=round((baseline_total / 1000) / speed_kmh * 60, 1),
         savings_percent=max(savings, 0),
+        reason="; ".join(reason_parts),
     )

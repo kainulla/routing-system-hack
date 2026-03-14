@@ -1,4 +1,4 @@
-"""Pydantic request/response models."""
+"""Pydantic request/response models aligned with official spec."""
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -9,75 +9,77 @@ class RecommendationRequest(BaseModel):
     priority: str
     destination_uwi: str
     planned_start: datetime
-    duration_hours: float
+    planned_duration_hours: float
 
 
-class ScoredVehicle(BaseModel):
-    vehicle_id: str
-    vehicle_name: str
-    vehicle_type: str
-    score: float
-    distance_m: float
+class ScoredUnit(BaseModel):
+    wialon_id: int
+    name: str
     eta_minutes: float
+    distance_km: float
+    score: float
     reason: str
 
 
 class RecommendationResponse(BaseModel):
     task_id: str
     destination_uwi: str
-    recommendations: list[ScoredVehicle]
+    units: list[ScoredUnit]
 
 
 # --- Route ---
+class RouteFrom(BaseModel):
+    wialon_id: int | None = None
+    lon: float
+    lat: float
+
+
+class RouteTo(BaseModel):
+    uwi: str | None = None
+    lon: float
+    lat: float
+
+
 class RouteRequest(BaseModel):
-    from_lon: float
-    from_lat: float
-    to_lon: float
-    to_lat: float
+    from_point: RouteFrom  # aliased as "from" in JSON
+    to: RouteTo
+
+    model_config = {"populate_by_name": True}
+
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        if isinstance(obj, dict) and "from" in obj:
+            obj = {**obj, "from_point": obj.pop("from")}
+        return super().model_validate(obj, *args, **kwargs)
 
 
 class RouteResponse(BaseModel):
-    distance_m: float
-    duration_minutes: float
-    path_coords: list[list[float]]
-    from_node: int
-    to_node: int
+    distance_km: float
+    time_minutes: float
+    nodes: list[int]
+    coords: list[list[float]]
 
 
 # --- Multitask ---
-class TaskInput(BaseModel):
-    task_id: str
-    destination_uwi: str
-    priority: str
-    duration_hours: float
+class MultitaskConstraints(BaseModel):
+    max_total_time_minutes: float | None = None
+    max_detour_ratio: float | None = None
 
 
 class MultitaskRequest(BaseModel):
-    vehicle_id: str
-    tasks: list[TaskInput]
-
-
-class TaskStop(BaseModel):
-    task_id: str
-    destination_uwi: str
-    distance_from_prev_m: float
-    cumulative_distance_m: float
-
-
-class TaskGroup(BaseModel):
-    group_id: int
-    vehicle_id: str
-    stops: list[TaskStop]
-    total_distance_m: float
-    total_duration_minutes: float
+    task_ids: list[str]
+    constraints: MultitaskConstraints | None = None
 
 
 class MultitaskResponse(BaseModel):
-    vehicle_id: str
-    groups: list[TaskGroup]
-    baseline_total_m: float
-    optimized_total_m: float
+    groups: list[list[str]]
+    strategy_summary: str
+    total_distance_km: float
+    total_time_minutes: float
+    baseline_distance_km: float
+    baseline_time_minutes: float
     savings_percent: float
+    reason: str
 
 
 # --- Health ---

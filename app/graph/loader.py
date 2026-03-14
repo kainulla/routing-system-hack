@@ -19,11 +19,11 @@ class RoadGraph:
         edges = repo.get_road_edges()
 
         for n in nodes:
-            self.graph.add_node(n.id, lon=n.lon, lat=n.lat)
-            self.coords[n.id] = (n.lon, n.lat)
+            self.graph.add_node(n.node_id, lon=n.lon, lat=n.lat)
+            self.coords[n.node_id] = (n.lon, n.lat)
 
         for e in edges:
-            self.graph.add_edge(e.from_node, e.to_node, weight=e.weight)
+            self.graph.add_edge(e.source, e.target, weight=e.weight)
 
         self._node_ids = sorted(self.coords.keys())
         self._node_coords = np.array(

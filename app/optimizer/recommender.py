@@ -1,5 +1,5 @@
 """Vehicle recommendation logic for a single task."""
-from app.api.schemas import RecommendationRequest, RecommendationResponse, ScoredVehicle
+from app.api.schemas import RecommendationRequest, RecommendationResponse, ScoredUnit
 from app.config import settings
 from app.db.repository import SQLAlchemyRepository
 from app.fleet.state import FleetState
@@ -20,12 +20,10 @@ def recommend_vehicles(
         return RecommendationResponse(
             task_id=req.task_id,
             destination_uwi=req.destination_uwi,
-            recommendations=[],
+            units=[],
         )
 
-    dest_node = well.nearest_node
-    if dest_node is None:
-        dest_node, _ = road_graph.snap_to_node(well.lon, well.lat)
+    dest_node, _ = road_graph.snap_to_node(well.longitude, well.latitude)
 
     task_obj = repo.get_task_by_id(req.task_id)
     task_type = task_obj.task_type if task_obj else "transport_fluid"
@@ -43,23 +41,20 @@ def recommend_vehicles(
             continue
 
         eta_min = (path.distance_m / 1000) / speed_kmh * 60
-        is_compat = task_type in v.compatible_tasks
 
         score, reason = compute_score(
             distance_m=path.distance_m,
             eta_minutes=eta_min,
             priority=req.priority,
-            is_compatible=is_compat,
             free_at=v.free_at,
             planned_start=req.planned_start,
         )
 
-        scored.append(ScoredVehicle(
-            vehicle_id=v.vehicle_id,
-            vehicle_name=v.vehicle_name,
-            vehicle_type=v.vehicle_type,
+        scored.append(ScoredUnit(
+            wialon_id=v.wialon_id,
+            name=v.name,
             score=score,
-            distance_m=round(path.distance_m, 2),
+            distance_km=round(path.distance_m / 1000, 2),
             eta_minutes=round(eta_min, 1),
             reason=reason,
         ))
@@ -69,5 +64,5 @@ def recommend_vehicles(
     return RecommendationResponse(
         task_id=req.task_id,
         destination_uwi=req.destination_uwi,
-        recommendations=scored[:3],
+        units=scored[:3],
     )

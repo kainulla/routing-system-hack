@@ -20,12 +20,12 @@ class Settings(BaseSettings):
         "night": (20, 8),
     }
 
+    # Spec scoring weights: ωd=0.30, ωt=0.30, ωw=0.15, ωp=0.25
     SCORING_WEIGHTS: dict[str, float] = {
         "distance": 0.30,
-        "eta": 0.25,
-        "priority": 0.20,
-        "compatibility": 0.15,
-        "availability": 0.10,
+        "eta": 0.30,
+        "wait": 0.15,
+        "sla_penalty": 0.25,
     }
 
     DETOUR_RATIO_MAX: float = 1.4

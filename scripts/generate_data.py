@@ -3,7 +3,7 @@ import math
 import os
 import random
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import numpy as np
 
@@ -49,15 +49,16 @@ def generate():
     lats = np.linspace(LAT_MIN, LAT_MAX, GRID)
 
     nodes = []
-    node_id = 0
+    node_counter = 0
     coords = {}
     for i, lon in enumerate(lons):
         for j, lat in enumerate(lats):
             nlon = lon + np.random.normal(0, 0.001)
             nlat = lat + np.random.normal(0, 0.001)
-            nodes.append(RoadNode(id=node_id, lon=round(nlon, 6), lat=round(nlat, 6)))
-            coords[node_id] = (round(nlon, 6), round(nlat, 6))
-            node_id += 1
+            nid = node_counter
+            nodes.append(RoadNode(id=node_counter, node_id=nid, lon=round(nlon, 6), lat=round(nlat, 6)))
+            coords[nid] = (round(nlon, 6), round(nlat, 6))
+            node_counter += 1
     session.bulk_save_objects(nodes)
     print(f"Created {len(nodes)} road nodes")
 
@@ -85,9 +86,9 @@ def generate():
                 c1 = coords[current]
                 c2 = coords[nb]
                 w = haversine(c1[0], c1[1], c2[0], c2[1])
-                edges.append(RoadEdge(id=edge_id, from_node=current, to_node=nb, weight=round(w, 2)))
+                edges.append(RoadEdge(id=edge_id, source=current, target=nb, weight=round(w, 2)))
                 edge_id += 1
-                edges.append(RoadEdge(id=edge_id, from_node=nb, to_node=current, weight=round(w, 2)))
+                edges.append(RoadEdge(id=edge_id, source=nb, target=current, weight=round(w, 2)))
                 edge_id += 1
     session.bulk_save_objects(edges)
     print(f"Created {len(edges)} road edges")
@@ -101,10 +102,9 @@ def generate():
         wells.append(Well(
             id=idx,
             uwi=uwi,
-            name=f"Well-{idx + 1}",
-            lon=c[0] + np.random.normal(0, 0.0005),
-            lat=c[1] + np.random.normal(0, 0.0005),
-            nearest_node=wn_id,
+            well_name=f"Скважина-{idx + 1}",
+            longitude=c[0] + np.random.normal(0, 0.0005),
+            latitude=c[1] + np.random.normal(0, 0.0005),
         ))
     session.bulk_save_objects(wells)
     print(f"Created {len(wells)} wells")
@@ -125,6 +125,7 @@ def generate():
     for v in range(40):
         vtype = VEHICLE_TYPES[v % len(VEHICLE_TYPES)]
         vname = f"{TYPE_NAMES_RU[vtype]}-{v + 1:03d}"
+        wialon_id = 1000 + v
         base_node = random.choice(list(coords.keys()))
         base_lon, base_lat = coords[base_node]
 
@@ -134,13 +135,12 @@ def generate():
             ts = base_time + timedelta(hours=snap_num * 2)
             snapshots.append(WialonSnapshot(
                 id=snap_id,
-                vehicle_id=f"V-{v + 1:03d}",
-                vehicle_name=vname,
-                vehicle_type=vtype,
-                lon=round(drift_lon, 6),
-                lat=round(drift_lat, 6),
-                speed=round(random.uniform(0, 45), 1),
-                timestamp=ts,
+                wialon_id=wialon_id,
+                nm=vname,
+                pos_x=round(drift_lon, 6),
+                pos_y=round(drift_lat, 6),
+                pos_t=int(ts.timestamp()),
+                registration_plate=f"{random.randint(100, 999)}ABC{random.randint(10, 99)}",
                 snapshot_number=snap_num,
             ))
             snap_id += 1
@@ -150,7 +150,6 @@ def generate():
     # --- Tasks: ~30 over 3 days ---
     TASK_TYPES = ["transport_fluid", "cement_job", "well_service", "drilling_support", "steam_injection"]
     PRIORITIES = ["high", "medium", "low"]
-    SHIFTS = ["day", "night"]
     tasks = []
     well_uwis = [w.uwi for w in wells]
 
@@ -162,11 +161,12 @@ def generate():
         priority = random.choices(PRIORITIES, weights=[0.3, 0.5, 0.2])[0]
         task_type = random.choice(TASK_TYPES)
         dest_uwi = random.choice(well_uwis)
+        start_day = date(2025, 2, 20 + day_offset)
 
         assigned = None
         status = "pending"
         if t < 10 and random.random() < 0.4:
-            assigned = f"V-{random.randint(1, 40):03d}"
+            assigned = str(1000 + random.randint(0, 39))
             status = "assigned"
 
         tasks.append(Task(
@@ -176,8 +176,9 @@ def generate():
             priority=priority,
             destination_uwi=dest_uwi,
             planned_start=planned,
-            duration_hours=round(random.uniform(1.5, 8.0), 1),
+            planned_duration_hours=round(random.uniform(1.5, 8.0), 1),
             shift=shift,
+            start_day=start_day,
             assigned_vehicle=assigned,
             status=status,
         ))

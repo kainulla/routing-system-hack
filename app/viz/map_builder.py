@@ -19,19 +19,19 @@ def build_route_map(
     wells = repo.get_wells()
     for w in wells:
         folium.CircleMarker(
-            location=[w.lat, w.lon],
+            location=[w.latitude, w.longitude],
             radius=4,
             color="green",
             fill=True,
             fill_opacity=0.7,
-            popup=f"{w.uwi} ({w.name})",
+            popup=f"{w.uwi} ({w.well_name})",
         ).add_to(m)
 
     # Vehicles
-    for vid, v in fleet.vehicles.items():
+    for wid, v in fleet.vehicles.items():
         folium.Marker(
             location=[v.lat, v.lon],
-            popup=f"{v.vehicle_name} ({v.vehicle_type})",
+            popup=f"{v.name} ({v.vehicle_type})",
             icon=folium.Icon(color="blue", icon="truck", prefix="fa"),
         ).add_to(m)
 

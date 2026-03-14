@@ -1,4 +1,5 @@
 """Vehicle fleet state management."""
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -6,23 +7,40 @@ from app.db.repository import SQLAlchemyRepository
 from app.graph.loader import RoadGraph
 
 
+# Parse vehicle type from nm field (e.g., "АЦН-001" -> "ACN")
+TYPE_MAP_RU = {
+    "АЦН": "ACN",
+    "ЦА": "CA",
+    "АПШ": "APSH",
+    "АДПМ": "ADPM",
+    "ППУ": "PPU",
+}
+
+
+def parse_vehicle_type(nm: str) -> str:
+    """Extract vehicle type from name like 'АЦН-001'."""
+    for ru_prefix, eng_type in TYPE_MAP_RU.items():
+        if nm.startswith(ru_prefix):
+            return eng_type
+    return "UNKNOWN"
+
+
 @dataclass
 class VehicleState:
-    vehicle_id: str
-    vehicle_name: str
+    wialon_id: int
+    name: str
     vehicle_type: str
     lon: float
     lat: float
     nearest_node: int
     snap_distance_m: float
-    speed: float
     free_at: datetime
     compatible_tasks: list[str] = field(default_factory=list)
 
 
 class FleetState:
     def __init__(self):
-        self.vehicles: dict[str, VehicleState] = {}
+        self.vehicles: dict[int, VehicleState] = {}
         self._compat_map: dict[str, list[str]] = {}
 
     def load(self, repo: SQLAlchemyRepository, road_graph: RoadGraph):
@@ -37,24 +55,27 @@ class FleetState:
         assigned_end: dict[str, datetime] = {}
         for t in tasks:
             if t.assigned_vehicle and t.status in ("assigned", "in_progress"):
-                end_time = t.planned_start + timedelta(hours=t.duration_hours)
+                end_time = t.planned_start + timedelta(hours=t.planned_duration_hours)
                 if t.assigned_vehicle not in assigned_end or end_time > assigned_end[t.assigned_vehicle]:
                     assigned_end[t.assigned_vehicle] = end_time
 
         for snap in snapshots:
-            node_id, snap_dist = road_graph.snap_to_node(snap.lon, snap.lat)
-            free_at = assigned_end.get(snap.vehicle_id, snap.timestamp)
-            compat = self._compat_map.get(snap.vehicle_type, [])
+            lon = snap.pos_x
+            lat = snap.pos_y
+            node_id, snap_dist = road_graph.snap_to_node(lon, lat)
+            vehicle_type = parse_vehicle_type(snap.nm)
+            ts = datetime.fromtimestamp(snap.pos_t)
+            free_at = assigned_end.get(str(snap.wialon_id), ts)
+            compat = self._compat_map.get(vehicle_type, [])
 
-            self.vehicles[snap.vehicle_id] = VehicleState(
-                vehicle_id=snap.vehicle_id,
-                vehicle_name=snap.vehicle_name,
-                vehicle_type=snap.vehicle_type,
-                lon=snap.lon,
-                lat=snap.lat,
+            self.vehicles[snap.wialon_id] = VehicleState(
+                wialon_id=snap.wialon_id,
+                name=snap.nm,
+                vehicle_type=vehicle_type,
+                lon=lon,
+                lat=lat,
                 nearest_node=node_id,
                 snap_distance_m=snap_dist,
-                speed=snap.speed or 0,
                 free_at=free_at,
                 compatible_tasks=compat,
             )
@@ -65,5 +86,5 @@ class FleetState:
             if task_type in v.compatible_tasks
         ]
 
-    def get_vehicle(self, vehicle_id: str) -> VehicleState | None:
-        return self.vehicles.get(vehicle_id)
+    def get_vehicle(self, wialon_id: int) -> VehicleState | None:
+        return self.vehicles.get(wialon_id)

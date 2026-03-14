@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 
 from app.api.schemas import (
     RecommendationRequest, RecommendationResponse,
-    RouteRequest, RouteResponse,
+    RouteRequest, RouteResponse, RouteFrom, RouteTo,
     MultitaskRequest, MultitaskResponse,
     HealthResponse,
 )
@@ -27,8 +27,9 @@ def list_tasks(request: Request):
             "priority": t.priority,
             "destination_uwi": t.destination_uwi,
             "planned_start": t.planned_start.isoformat(),
-            "duration_hours": t.duration_hours,
+            "planned_duration_hours": t.planned_duration_hours,
             "shift": t.shift,
+            "start_day": t.start_day.isoformat() if t.start_day else None,
             "assigned_vehicle": t.assigned_vehicle,
             "status": t.status,
         }
@@ -41,8 +42,8 @@ def list_vehicles(request: Request):
     state = request.app.state
     return [
         {
-            "vehicle_id": v.vehicle_id,
-            "vehicle_name": v.vehicle_name,
+            "wialon_id": v.wialon_id,
+            "name": v.name,
             "vehicle_type": v.vehicle_type,
             "lon": v.lon,
             "lat": v.lat,
@@ -57,7 +58,12 @@ def list_wells(request: Request):
     state = request.app.state
     wells = state.repo.get_wells()
     return [
-        {"uwi": w.uwi, "name": w.name, "lon": w.lon, "lat": w.lat}
+        {
+            "uwi": w.uwi,
+            "well_name": w.well_name,
+            "longitude": w.longitude,
+            "latitude": w.latitude,
+        }
         for w in wells
     ]
 
@@ -84,18 +90,27 @@ def get_recommendations(req: RecommendationRequest, request: Request):
         fleet=state.fleet,
         path_service=state.path_service,
     )
-    if not result.recommendations:
+    if not result.units:
         raise HTTPException(status_code=404, detail="No suitable vehicles found")
     return result
 
 
-@router.post("/api/route", response_model=RouteResponse)
-def get_route(req: RouteRequest, request: Request):
+@router.post("/api/route")
+async def get_route(request: Request):
     state = request.app.state
+    body = await request.json()
+    # Handle "from" key (reserved word in Python)
+    from_data = body.get("from", body.get("from_point", {}))
+    to_data = body.get("to", {})
+    req = RouteRequest(
+        from_point=RouteFrom(**from_data),
+        to=RouteTo(**to_data),
+    )
     result = compute_route(
         req=req,
         road_graph=state.road_graph,
         path_service=state.path_service,
+        repo=state.repo,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="No path found between points")
