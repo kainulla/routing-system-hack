@@ -39,14 +39,12 @@ class Well(Base):
 class WialonSnapshot(Base):
     __tablename__ = "wialon_units_snapshot_3"
     __table_args__ = {"schema": _ref_schema} if _ref_schema else {}
-    id = Column(Integer, primary_key=True)
-    wialon_id = Column(BigInteger, nullable=False)
+    wialon_id = Column(BigInteger, primary_key=True)
     nm = Column(Text, nullable=False)
     pos_x = Column(Float, nullable=False)  # longitude
     pos_y = Column(Float, nullable=False)  # latitude
     pos_t = Column(BigInteger, nullable=False)  # unix timestamp
     registration_plate = Column(Text, nullable=True)
-    snapshot_number = Column(Integer, nullable=True)
 
 
 class Task(Base):

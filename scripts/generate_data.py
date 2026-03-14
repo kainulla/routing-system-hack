@@ -122,7 +122,6 @@ def generate():
         "PPU": "ППУ",
     }
     snapshots = []
-    snap_id = 0
     base_time = datetime(2025, 2, 20, 6, 0, 0)
 
     for v in range(40):
@@ -132,21 +131,17 @@ def generate():
         base_node = random.choice(list(coords.keys()))
         base_lon, base_lat = coords[base_node]
 
-        for snap_num in range(1, 4):
-            drift_lon = base_lon + np.random.normal(0, 0.005) * snap_num
-            drift_lat = base_lat + np.random.normal(0, 0.005) * snap_num
-            ts = base_time + timedelta(hours=snap_num * 2)
-            snapshots.append(WialonSnapshot(
-                id=snap_id,
-                wialon_id=wialon_id,
-                nm=vname,
-                pos_x=round(drift_lon, 6),
-                pos_y=round(drift_lat, 6),
-                pos_t=int(ts.timestamp()),
-                registration_plate=f"{random.randint(100, 999)}ABC{random.randint(10, 99)}",
-                snapshot_number=snap_num,
-            ))
-            snap_id += 1
+        drift_lon = base_lon + np.random.normal(0, 0.015)
+        drift_lat = base_lat + np.random.normal(0, 0.015)
+        ts = base_time + timedelta(hours=random.randint(1, 6))
+        snapshots.append(WialonSnapshot(
+            wialon_id=wialon_id,
+            nm=vname,
+            pos_x=round(drift_lon, 6),
+            pos_y=round(drift_lat, 6),
+            pos_t=int(ts.timestamp()),
+            registration_plate=f"{random.randint(100, 999)}ABC{random.randint(10, 99)}",
+        ))
     session.bulk_save_objects(snapshots)
     print(f"Created {len(snapshots)} wialon snapshots")
 

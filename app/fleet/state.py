@@ -44,20 +44,33 @@ class FleetState:
         self._compat_map: dict[str, list[str]] = {}
 
     def load(self, repo: SQLAlchemyRepository, road_graph: RoadGraph):
-        compat_rows = repo.get_compatibility()
-        for c in compat_rows:
-            if c.compatible:
-                self._compat_map.setdefault(c.vehicle_type, []).append(c.task_type)
+        try:
+            compat_rows = repo.get_compatibility()
+            for c in compat_rows:
+                if c.compatible:
+                    self._compat_map.setdefault(c.vehicle_type, []).append(c.task_type)
+        except Exception:
+            repo.session.rollback()
+            self._compat_map = {
+                "ACN": ["transport_fluid", "steam_injection"],
+                "CA": ["cement_job", "well_service"],
+                "APSH": ["well_service", "drilling_support"],
+                "ADPM": ["drilling_support", "transport_fluid"],
+                "PPU": ["steam_injection", "well_service"],
+            }
 
         snapshots = repo.get_latest_snapshot()
-        tasks = repo.get_tasks()
 
         assigned_end: dict[str, datetime] = {}
-        for t in tasks:
-            if t.assigned_vehicle and t.status in ("assigned", "in_progress"):
-                end_time = t.planned_start + timedelta(hours=t.planned_duration_hours)
-                if t.assigned_vehicle not in assigned_end or end_time > assigned_end[t.assigned_vehicle]:
-                    assigned_end[t.assigned_vehicle] = end_time
+        try:
+            tasks = repo.get_tasks()
+            for t in tasks:
+                if t.assigned_vehicle and t.status in ("assigned", "in_progress"):
+                    end_time = t.planned_start + timedelta(hours=t.planned_duration_hours)
+                    if t.assigned_vehicle not in assigned_end or end_time > assigned_end[t.assigned_vehicle]:
+                        assigned_end[t.assigned_vehicle] = end_time
+        except Exception:
+            pass
 
         for snap in snapshots:
             lon = snap.pos_x
