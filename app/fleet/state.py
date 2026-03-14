@@ -70,7 +70,7 @@ class FleetState:
                     if t.assigned_vehicle not in assigned_end or end_time > assigned_end[t.assigned_vehicle]:
                         assigned_end[t.assigned_vehicle] = end_time
         except Exception:
-            pass
+            repo.session.rollback()
 
         for snap in snapshots:
             lon = snap.pos_x
